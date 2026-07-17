@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NUH Care - ระบบจัดการและจองคิวนัดหมายแพทย์ (พยาบาล)</title>
+  
+  <!-- Premium Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="glass-bg"></div>
+  
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Passcode Screen (Gate) -->
+  <div id="passcode-screen" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(248, 250, 252, 0.95); backdrop-filter: blur(10px); z-index: 1000; display: flex; align-items: center; justify-content: center; transition: opacity 0.4s ease;">
+    <div class="card glass-card" style="max-width: 420px; width: 90%; padding: 35px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08); text-align: center;">
+      <i class="fa-solid fa-user-shield" style="font-size: 3rem; color: var(--accent-color); margin-bottom: 20px;"></i>
+      <h2 style="font-family: var(--font-heading); font-size: 1.5rem; margin-bottom: 10px; color: var(--text-primary);">ยืนยันสิทธิ์เจ้าหน้าที่พยาบาล</h2>
+      <p class="helper-text" style="margin-bottom: 25px;">กรุณากรอกรหัสผ่านเพื่อเข้าถึงข้อมูลคนไข้ในระบบ</p>
+      
+      <div class="form-group" style="text-align: left; margin-bottom: 20px;">
+        <label for="input-passcode"><i class="fa-solid fa-key"></i> รหัสผ่านเจ้าหน้าที่</label>
+        <input type="password" id="input-passcode" placeholder="กรอกรหัสผ่านพยาบาล..." style="width: 100%; padding: 12px 16px; border-radius: var(--radius-sm); border: 1px solid #cbd5e1; background: #fff; color: var(--text-primary); font-size: 1rem;">
+      </div>
+      
+      <div id="passcode-error" class="error-banner hidden" style="margin-bottom: 20px; background: rgba(220, 38, 38, 0.08); color: var(--error); border-color: rgba(220, 38, 38, 0.2);">
+        <i class="fa-solid fa-circle-exclamation"></i> รหัสผ่านไม่ถูกต้อง กรุณาลองใหม่อีกครั้ง
+      </div>
+      
+      <button id="btn-verify-passcode" class="btn-primary btn-full">
+        <i class="fa-solid fa-lock-open"></i> ยืนยันรหัสผ่านเพื่อเข้าใช้งาน
+      </button>
+    </div>
+  </div>
+
+  <div class="app-container">
+    <!-- Header Banner -->
+    <header class="app-header">
+      <div class="header-logo">
+        <i class="fa-solid fa-user-nurse logo-icon"></i>
+        <div>
+          <h1>NUH Care (สำหรับพยาบาล)</h1>
+          <p>ระบบติดตามสถานะการจองและคิวนัดหมายแบบเรียลไทม์</p>
+        </div>
+      </div>
+      <div class="live-status">
+        <span class="live-dot"></span>
+        <span><strong>Live Connected</strong></span>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- ================= NURSE PORTAL ================= -->
+      <section id="nurse-portal" class="portal-section">
+        <!-- Live Status Bar -->
+        <div class="status-bar glass-card">
+          <div class="live-status">
+            <span class="live-dot"></span>
+            <span>ระบบติดตามสถานะคิวจองนัดหมาย <strong>Real-time Live Monitor</strong></span>
+          </div>
+          <div id="nurse-stats" class="stats-container">
+            <div class="stat-item">
+              <span class="stat-label">คิวจองทั้งหมดวันนี้:</span>
+              <span id="stat-total" class="stat-value">0</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-label">คิวที่ยกเลิก:</span>
+              <span id="stat-cancelled" class="stat-value text-error">0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel-full" style="display: flex; flex-direction: column; gap: 25px;">
+          <!-- Appointment Search / Filter -->
+          <div class="card glass-card filter-card">
+            <div class="search-grid">
+              <div class="form-group">
+                <label for="filter-hn">ค้นหาเลข HN</label>
+                <input type="text" id="filter-hn" placeholder="ระบุเลข HN...">
+              </div>
+              <div class="form-group">
+                <label for="filter-doctor">ค้นหาชื่อแพทย์</label>
+                <input type="text" id="filter-doctor" placeholder="ระบุชื่อแพทย์...">
+              </div>
+              <div class="form-group">
+                <label for="filter-date">กรองตามวันที่นัด (พ.ศ.)</label>
+                <input type="text" id="filter-date" placeholder="วว/ดด/พ.ศ. เช่น 20/07/2569">
+              </div>
+              <div class="form-group button-group">
+                <button id="btn-clear-filters" class="btn-secondary">
+                  <i class="fa-solid fa-eraser"></i> ล้างการค้นหา
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Appointments Grid -->
+          <div class="card glass-card table-card">
+            <h3><i class="fa-solid fa-list-check"></i> ตารางจองคิวทั้งหมด (อัปเดตอัตโนมัติ)</h3>
+            <div class="table-responsive">
+              <table class="live-table">
+                <thead>
+                  <tr>
+                    <th>ลำดับ</th>
+                    <th>เลข HN</th>
+                    <th>ชื่อคนไข้</th>
+                    <th>แพทย์ที่นัด</th>
+                    <th>เวลานัดหมาย</th>
+                    <th>สถานะคิว</th>
+                    <th>วันที่ทำรายการ</th>
+                    <th>การจัดการ</th>
+                  </tr>
+                </thead>
+                <tbody id="nurse-appointments-body">
+                  <tr>
+                    <td colspan="8" class="text-center placeholder-text">ไม่มีข้อมูลตารางนัดหมายที่ตรงตามเงื่อนไข</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="nurse.js"></script>
+</body>
+</html>

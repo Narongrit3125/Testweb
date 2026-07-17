@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NUH Care - ระบบจัดการและจองคิวนัดหมายแพทย์</title>
+  
+  <!-- Premium Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div class="glass-bg"></div>
+  
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <div class="app-container">
+    <!-- Header Banner -->
+    <header class="app-header">
+      <div class="header-logo">
+        <i class="fa-solid fa-heart-pulse logo-icon"></i>
+        <div>
+          <h1>NUH Care</h1>
+          <p>ระบบจัดการและจองคิวนัดหมายแพทย์</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- ================= PATIENT PORTAL ================= -->
+      <section id="patient-portal" class="portal-section active">
+        <div class="grid-2col">
+          <!-- Left Column: Patient Access & Booking -->
+          <div class="panel-left">
+            <!-- Search Patient by HN -->
+            <div class="card glass-card search-card">
+              <h3><i class="fa-solid fa-search"></i> ค้นหาข้อมูลคนไข้</h3>
+              <p class="helper-text">กรอกเลขบัตรคนไข้ (HN) เพื่อเข้าสู่ระบบจองคิว เช่น <strong>HN001</strong>, <strong>HN002</strong></p>
+              <div class="search-box">
+                <input type="text" id="input-hn" placeholder="ระบุเลข HN ของคุณ..." autocomplete="off">
+                <button id="btn-search-patient" class="btn-primary">
+                  <i class="fa-solid fa-arrow-right-to-bracket"></i> เข้าสู่ระบบ
+                </button>
+              </div>
+              <div id="patient-notfound" class="error-banner hidden">
+                <i class="fa-solid fa-circle-exclamation"></i> ไม่พบข้อมูลเลข HN นี้ในระบบ กรุณาลองใหม่อีกครั้ง
+              </div>
+            </div>
+
+            <!-- Register New Patient -->
+            <div class="card glass-card register-card">
+              <h3><i class="fa-solid fa-user-plus"></i> ลงทะเบียนคนไข้ใหม่</h3>
+              <div class="form-grid">
+                <div class="form-group-half">
+                  <label for="reg-hn">เลข HN (เช่น HN004)</label>
+                  <input type="text" id="reg-hn" placeholder="ระบุเลข HN เช่น HN004">
+                </div>
+                <div class="form-group-half">
+                  <label for="reg-phone">เบอร์โทรศัพท์</label>
+                  <input type="text" id="reg-phone" placeholder="เช่น 089xxxxxxx">
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="form-group-half">
+                  <label for="reg-firstname">ชื่อจริง</label>
+                  <input type="text" id="reg-firstname" placeholder="ชื่อจริง">
+                </div>
+                <div class="form-group-half">
+                  <label for="reg-lastname">นามสกุล</label>
+                  <input type="text" id="reg-lastname" placeholder="นามสกุล">
+                </div>
+              </div>
+              <button id="btn-register-patient" class="btn-secondary btn-full" style="margin-top: 10px;">
+                <i class="fa-solid fa-user-check"></i> บันทึกข้อมูลลงทะเบียน
+              </button>
+            </div>
+
+            <!-- Booking Section (Hidden until HN logged in) -->
+            <div id="booking-container" class="card glass-card booking-card disabled-state">
+              <div class="disabled-overlay">
+                <div class="overlay-msg">
+                  <i class="fa-solid fa-lock"></i>
+                  <p>กรุณาเข้าสู่ระบบด้วยเลข HN เพื่อจองคิวใหม่</p>
+                </div>
+              </div>
+              
+              <h3><i class="fa-solid fa-calendar-plus"></i> จองคิวนัดหมายใหม่</h3>
+              <p class="subtitle">จองคิวนัดหมายแพทย์ล่วงหน้าอย่างน้อย 1 วัน</p>
+
+              <!-- Step 1: Select Doctor -->
+              <div class="form-group">
+                <label for="select-doctor"><i class="fa-solid fa-user-md"></i> เลือกแพทย์เฉพาะทาง</label>
+                <select id="select-doctor">
+                  <option value="">-- โปรดเลือกแพทย์ --</option>
+                </select>
+              </div>
+
+              <!-- Step 2: Select Date -->
+              <div class="form-group">
+                <label for="input-booking-date"><i class="fa-solid fa-clock"></i> เลือกวันที่ต้องการเข้าตรวจ</label>
+                <input type="date" id="input-booking-date">
+                <span id="booking-date-be-label" style="display: block; margin-top: 6px; color: var(--accent-color); font-size: 0.85rem; font-weight: 600;"></span>
+              </div>
+
+              <!-- Step 3: Choose Timeslot -->
+              <div class="form-group">
+                <label><i class="fa-solid fa-calendar-check"></i> ช่วงเวลาที่เปิดรับจอง</label>
+                <div id="timeslots-grid" class="timeslots-grid">
+                  <p class="placeholder-text text-center">กรุณาเลือกแพทย์และวันที่เพื่อดูช่วงเวลา</p>
+                </div>
+              </div>
+
+              <button id="btn-submit-booking" class="btn-success btn-full" disabled>
+                <i class="fa-solid fa-circle-check"></i> ยืนยันการจองคิวนัดหมาย
+              </button>
+            </div>
+          </div>
+
+          <!-- Right Column: Patient Profile & Upcoming Appointments -->
+          <div class="panel-right">
+            <!-- Active Patient Info -->
+            <div id="patient-profile-card" class="card glass-card patient-profile-card hidden">
+              <div class="profile-header">
+                <div class="avatar"><i class="fa-solid fa-user-circle"></i></div>
+                <div>
+                  <h2 id="profile-name">สมชาย ดีใจ</h2>
+                  <span class="hn-tag">HN: <span id="profile-hn">HN001</span></span>
+                </div>
+              </div>
+              <div class="profile-details">
+                <p><i class="fa-solid fa-phone"></i> เบอร์โทรศัพท์: <span id="profile-phone">-</span></p>
+              </div>
+            </div>
+
+            <!-- Patient's Appointment List -->
+            <div class="card glass-card list-card">
+              <h3><i class="fa-solid fa-calendar-days"></i> รายการนัดหมายของคุณ</h3>
+              <div id="patient-appointments-list" class="appointments-list">
+                <p class="placeholder-text text-center">กรุณาเข้าสู่ระบบเพื่อแสดงคิวจองของคุณ</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+
+
+    </main>
+  </div>
+
+  <!-- Scripts -->
+  <script src="app.js"></script>
+</body>
+</html>

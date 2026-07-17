@@ -7,19 +7,16 @@ const express_1 = require("express");
 const db_1 = __importDefault(require("../db"));
 const router = (0, express_1.Router)();
 // Get employee data (e.g. list of doctors)
-router.get('/', async (req, res) => {
+router.get('/', (req, res) => {
     try {
         const { role } = req.query;
-        const filter = role ? { role: String(role).toUpperCase() } : {};
-        const employees = await db_1.default.employee.findMany({
-            where: filter,
-            select: {
-                id: true,
-                firstName: true,
-                lastName: true,
-                role: true
-            }
-        });
+        let employees;
+        if (role) {
+            employees = db_1.default.prepare('SELECT id, firstName, lastName, role FROM Employee WHERE UPPER(role) = ?').all(String(role).toUpperCase());
+        }
+        else {
+            employees = db_1.default.prepare('SELECT id, firstName, lastName, role FROM Employee').all();
+        }
         res.json(employees);
     }
     catch (error) {

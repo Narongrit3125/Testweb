@@ -10,9 +10,11 @@ const patient_routes_1 = __importDefault(require("./routes/patient.routes"));
 const employee_routes_1 = __importDefault(require("./routes/employee.routes"));
 const timeslot_routes_1 = __importDefault(require("./routes/timeslot.routes"));
 const appointment_routes_1 = __importDefault(require("./routes/appointment.routes"));
+const path_1 = __importDefault(require("path"));
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)());
 app.use(express_1.default.json());
+app.use(express_1.default.static(path_1.default.join(process.cwd(), 'public')));
 // Real-time SSE endpoint for nurses
 app.get('/api/events', realtime_service_1.streamEvents);
 // API Routes
