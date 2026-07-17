@@ -274,4 +274,147 @@ router.delete('/:id', (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
+// PATCH /api/appointment/:id - Reschedule an appointment
+router.patch('/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const { timeslotId } = req.body;
+        const { hn } = req.query; // Patient HN query param
+        const authHeader = req.headers.authorization;
+        const isStaff = authHeader === 'Bearer nurse123' || authHeader === 'Bearer doctor123';
+        if (!timeslotId) {
+            return res.status(400).json({ error: 'timeslotId is required' });
+        }
+        if (!isStaff && !hn) {
+            return res.status(401).json({ error: 'Unauthorized: Passcode or patient HN is required' });
+        }
+        // 1. Find the old appointment and verify ownership
+        const oldAppt = db_1.default.prepare(`
+      SELECT a.id, a.patientId, a.timeslotId, t.startTime, p.hn AS patientHn
+      FROM Appointment a
+      JOIN Timeslot t ON a.timeslotId = t.id
+      JOIN Patient p ON a.patientId = p.id
+      WHERE a.id = ?
+    `).get(Number(id));
+        if (!oldAppt)
+            return res.status(404).json({ error: 'Appointment not found' });
+        if (!isStaff && oldAppt.patientHn !== String(hn)) {
+            return res.status(403).json({ error: 'Forbidden: You cannot reschedule another patient\'s appointment' });
+        }
+        // 2. Check 1-day advance limit on the old appointment (must edit at least 1 day before the old appointment start)
+        const now = new Date();
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        if (!isStaff) {
+            const oldTimeslotStart = new Date(oldAppt.startTime);
+            if (oldTimeslotStart < tomorrow) {
+                return res.status(400).json({ error: 'Must reschedule at least 1 day in advance of your current appointment' });
+            }
+        }
+        // 3. Find the new timeslot and check 1-day advance booking constraint
+        const newTimeslot = db_1.default.prepare('SELECT * FROM Timeslot WHERE id = ?').get(Number(timeslotId));
+        if (!newTimeslot)
+            return res.status(404).json({ error: 'New timeslot not found' });
+        const newTimeslotStart = new Date(newTimeslot.startTime);
+        if (newTimeslotStart < tomorrow) {
+            return res.status(400).json({ error: 'New timeslot must be at least 1 day in advance' });
+        }
+        // 4. Check capacity of the new timeslot
+        const resultCount = db_1.default.prepare("SELECT count(*) AS count FROM Appointment WHERE timeslotId = ? AND status = 'BOOKED'").get(Number(timeslotId));
+        const currentBookings = resultCount ? resultCount.count : 0;
+        if (currentBookings >= newTimeslot.maxCapacity) {
+            return res.status(400).json({ error: 'New timeslot is full' });
+        }
+        // 5. Check if patient has another active booking on the new date (excluding the current appointment itself)
+        const existingBookingToday = db_1.default.prepare(`
+      SELECT 1 FROM Appointment a
+      JOIN Timeslot t ON a.timeslotId = t.id
+      WHERE a.patientId = ? AND a.status = 'BOOKED' AND date(t.startTime) = date(?) AND a.id != ?
+    `).get(oldAppt.patientId, newTimeslot.startTime, Number(id));
+        if (existingBookingToday) {
+            return res.status(400).json({ error: 'Patient already has an appointment booked on this day' });
+        }
+        // Run transaction
+        const runTransaction = db_1.default.transaction(() => {
+            // Update appointment
+            db_1.default.prepare(`
+        UPDATE Appointment 
+        SET timeslotId = ?, updatedAt = datetime('now', 'localtime') 
+        WHERE id = ?
+      `).run(Number(timeslotId), Number(id));
+            // Fetch the full details of the updated appointment
+            const row = db_1.default.prepare(`
+        SELECT a.id AS apptId, a.status AS apptStatus, a.date AS apptDate, a.createdAt AS apptCreatedAt, a.updatedAt AS apptUpdatedAt,
+               p.id AS patientId, p.hn AS patientHn, p.firstName AS patientFirstName, p.lastName AS patientLastName, p.phone AS patientPhone, p.createdAt AS patientCreatedAt, p.updatedAt AS patientUpdatedAt,
+               t.id AS timeslotId, t.startTime AS timeslotStartTime, t.endTime AS timeslotEndTime, t.maxCapacity AS timeslotMaxCapacity, t.createdAt AS timeslotCreatedAt, t.updatedAt AS timeslotUpdatedAt,
+               d.id AS doctorId, d.firstName AS doctorFirstName, d.lastName AS doctorLastName, d.role AS doctorRole, d.createdAt AS doctorCreatedAt, d.updatedAt AS doctorUpdatedAt
+        FROM Appointment a
+        JOIN Patient p ON a.patientId = p.id
+        JOIN Timeslot t ON a.timeslotId = t.id
+        JOIN Employee d ON t.doctorId = d.id
+        WHERE a.id = ?
+      `).get(Number(id));
+            return {
+                id: row.apptId,
+                patientId: row.patientId,
+                timeslotId: row.timeslotId,
+                status: row.apptStatus,
+                date: row.apptDate,
+                createdAt: row.apptCreatedAt,
+                updatedAt: row.apptUpdatedAt,
+                Patient: {
+                    id: row.patientId,
+                    hn: row.patientHn,
+                    firstName: row.patientFirstName,
+                    lastName: row.patientLastName,
+                    phone: row.patientPhone,
+                    createdAt: row.patientCreatedAt,
+                    updatedAt: row.patientUpdatedAt
+                },
+                Timeslot: {
+                    id: row.timeslotId,
+                    doctorId: row.doctorId,
+                    startTime: row.timeslotStartTime,
+                    endTime: row.timeslotEndTime,
+                    maxCapacity: row.timeslotMaxCapacity,
+                    createdAt: row.timeslotCreatedAt,
+                    updatedAt: row.timeslotUpdatedAt,
+                    Doctor: {
+                        id: row.doctorId,
+                        firstName: row.doctorFirstName,
+                        lastName: row.doctorLastName,
+                        role: row.doctorRole,
+                        createdAt: row.doctorCreatedAt,
+                        updatedAt: row.doctorUpdatedAt
+                    }
+                }
+            };
+        });
+        const result = runTransaction();
+        // Fetch the old appointment details for cancelling SSE
+        const oldTimeslot = db_1.default.prepare('SELECT * FROM Timeslot WHERE id = ?').get(oldAppt.timeslotId);
+        const oldDoc = db_1.default.prepare('SELECT * FROM Employee WHERE id = ?').get(oldTimeslot.doctorId);
+        // Broadcast CANCEL_BOOKING for the old timeslot
+        (0, realtime_service_1.broadcastUpdate)('CANCEL_BOOKING', {
+            appointment: {
+                id: Number(id),
+                status: 'CANCELLED',
+                timeslotId: oldAppt.timeslotId,
+                Patient: { hn: oldAppt.patientHn },
+                Timeslot: {
+                    doctorId: oldTimeslot.doctorId,
+                    startTime: oldTimeslot.startTime,
+                    endTime: oldTimeslot.endTime,
+                    Doctor: { firstName: oldDoc.firstName, lastName: oldDoc.lastName }
+                }
+            }
+        });
+        // Broadcast NEW_BOOKING for the new timeslot
+        (0, realtime_service_1.broadcastUpdate)('NEW_BOOKING', { appointment: result });
+        res.json(result);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message || 'Internal server error' });
+    }
+});
 exports.default = router;

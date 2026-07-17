@@ -2,6 +2,8 @@
 let currentPatient = null;
 let selectedTimeslotId = null;
 let doctorsList = [];
+let patientAppointments = [];
+let reschedulingApptId = null;
 
 // DOM Elements
 const inputHn = document.getElementById('input-hn');
@@ -27,6 +29,9 @@ const profileHn = document.getElementById('profile-hn');
 const profilePhone = document.getElementById('profile-phone');
 const btnPatientLogout = document.getElementById('btn-patient-logout');
 const patientAppointmentsList = document.getElementById('patient-appointments-list');
+const rescheduleBanner = document.getElementById('reschedule-banner');
+const rescheduleInfo = document.getElementById('reschedule-info');
+const btnCancelReschedule = document.getElementById('btn-cancel-reschedule');
 
 const toastContainer = document.getElementById('toast-container');
 
@@ -78,6 +83,13 @@ function setupEventListeners() {
 
   // Patient Logout
   btnPatientLogout.addEventListener('click', logoutPatient);
+
+  // Cancel Reschedule
+  if (btnCancelReschedule) {
+    btnCancelReschedule.addEventListener('click', () => {
+      cancelReschedule();
+    });
+  }
 }
 
 // ================= DOCTORS LOADER =================
@@ -87,7 +99,7 @@ async function loadDoctorsList() {
     doctorsList = await res.json();
     
     // Populate select doctor dropdown (Patient portal)
-    selectDoctor.innerHTML = '<option value="">-- โปรดเลือกแพทย์ --</option>';
+    selectDoctor.innerHTML = '<option value="">-- แสดงแพทย์ทุกคนที่ว่าง --</option>';
     doctorsList.forEach(doc => {
       const option = document.createElement('option');
       option.value = doc.id;
@@ -188,9 +200,10 @@ function logoutPatient() {
   patientProfileCard.classList.add('hidden');
   bookingContainer.classList.add('disabled-state');
   patientAppointmentsList.innerHTML = '<p class="placeholder-text text-center">กรุณาเข้าสู่ระบบเพื่อแสดงคิวจองของคุณ</p>';
-  timeslotsGrid.innerHTML = '<p class="placeholder-text text-center">กรุณาเลือกแพทย์และวันที่เพื่อดูช่วงเวลา</p>';
+  timeslotsGrid.innerHTML = '<p class="placeholder-text text-center">กรุณาระบุวันที่เพื่อดูช่วงเวลาของแพทย์</p>';
   btnSubmitBooking.disabled = true;
   selectedTimeslotId = null;
+  cancelReschedule();
   showToast('ออกจากระบบ', 'ออกจากระบบคนไข้เรียบร้อยแล้ว', 'success');
 }
 
@@ -199,9 +212,9 @@ async function loadPatientAppointments() {
   
   try {
     const res = await fetch(`/api/appointment?hn=${currentPatient.hn}`);
-    const appts = await res.json();
+    patientAppointments = await res.json();
     
-    renderPatientAppointments(appts);
+    renderPatientAppointments(patientAppointments);
   } catch (err) {
     showToast('ดึงข้อมูลล้มเหลว', 'ไม่สามารถโหลดรายการจองคิวของคุณได้', 'error');
   }
@@ -242,7 +255,12 @@ function renderPatientAppointments(appts) {
         <p><i class="fa-solid fa-notes-medical"></i> รหัสการจอง: #${appt.id}</p>
         <span class="status-badge ${badgeClass}">${statusText}</span>
       </div>
-      ${isBooked ? `<button class="btn-danger btn-sm" onclick="cancelAppointment(${appt.id})">ยกเลิกนัด</button>` : ''}
+      ${isBooked ? `
+        <div style="display: flex; gap: 8px; margin-top: 10px;">
+          <button class="btn-secondary btn-sm" onclick="startReschedule(${appt.id})">เลื่อนนัด</button>
+          <button class="btn-danger btn-sm" onclick="cancelAppointment(${appt.id})">ยกเลิกนัด</button>
+        </div>
+      ` : ''}
     `;
     
     patientAppointmentsList.appendChild(card);
@@ -280,15 +298,20 @@ async function loadTimeslots() {
   const docId = selectDoctor.value;
   const dateStr = inputBookingDate.value;
   
-  if (!docId || !dateStr) {
-    timeslotsGrid.innerHTML = '<p class="placeholder-text text-center">กรุณาเลือกแพทย์และวันที่เพื่อดูช่วงเวลา</p>';
+  if (!dateStr) {
+    timeslotsGrid.innerHTML = '<p class="placeholder-text text-center">กรุณาระบุวันที่เพื่อดูช่วงเวลาของแพทย์</p>';
     btnSubmitBooking.disabled = true;
     selectedTimeslotId = null;
     return;
   }
   
   try {
-    const res = await fetch(`/api/timeslot?doctorId=${docId}&date=${dateStr}`);
+    let url = `/api/timeslot?date=${dateStr}`;
+    if (docId) {
+      url += `&doctorId=${docId}`;
+    }
+
+    const res = await fetch(url);
     const slots = await res.json();
     
     renderTimeslots(slots);
@@ -303,7 +326,7 @@ function renderTimeslots(slots) {
   btnSubmitBooking.disabled = true;
   
   if (slots.length === 0) {
-    timeslotsGrid.innerHTML = '<p class="placeholder-text text-center">วันที่และแพทย์ที่คุณเลือกยังไม่มีตารางเวลาทำการ</p>';
+    timeslotsGrid.innerHTML = '<p class="placeholder-text text-center">วันที่เลือกยังไม่มีตารางเวลาแพทย์ทำการ</p>';
     return;
   }
   
@@ -320,20 +343,24 @@ function renderTimeslots(slots) {
     
     const startStr = formatTime(slot.startTime);
     const endStr = formatTime(slot.endTime);
+    const doctorNameStr = `แพทย์: ${slot.Doctor.firstName} ${slot.Doctor.lastName}`;
     
     if (isPassed) {
       item.innerHTML = `
         <div class="timeslot-time">${startStr} - ${endStr}</div>
+        <div class="timeslot-doctor" style="font-size: 0.78rem; margin: 4px 0; font-weight: 500;">${doctorNameStr}</div>
         <div class="timeslot-capacity">หมดเวลาจอง</div>
       `;
     } else if (isFull) {
       item.innerHTML = `
         <div class="timeslot-time">${startStr} - ${endStr}</div>
+        <div class="timeslot-doctor" style="font-size: 0.78rem; margin: 4px 0; font-weight: 500; color: var(--accent-color);">${doctorNameStr}</div>
         <div class="timeslot-capacity">เต็มแล้ว (${slot.bookingsCount}/${slot.maxCapacity})</div>
       `;
     } else {
       item.innerHTML = `
         <div class="timeslot-time">${startStr} - ${endStr}</div>
+        <div class="timeslot-doctor" style="font-size: 0.78rem; margin: 4px 0; font-weight: 500; color: var(--accent-color);">${doctorNameStr}</div>
         <div class="timeslot-capacity">ว่าง ${slot.remainingCapacity}/${slot.maxCapacity} คน</div>
       `;
     }
@@ -359,35 +386,124 @@ async function submitBooking() {
   if (!currentPatient || !selectedTimeslotId) return;
   
   try {
-    const res = await fetch('/api/appointment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        patientId: currentPatient.id,
-        timeslotId: selectedTimeslotId
-      })
-    });
+    let res;
+    if (reschedulingApptId !== null) {
+      res = await fetch(`/api/appointment/${reschedulingApptId}?hn=${currentPatient.hn}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          timeslotId: selectedTimeslotId
+        })
+      });
+    } else {
+      res = await fetch('/api/appointment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientId: currentPatient.id,
+          timeslotId: selectedTimeslotId
+        })
+      });
+    }
     
     const data = await res.json();
     if (!res.ok) {
-      showToast('จองคิวล้มเหลว', data.error || 'กรุณาลองใหม่อีกครั้ง', 'error');
+      showToast(reschedulingApptId !== null ? 'เลื่อนนัดล้มเหลว' : 'จองคิวล้มเหลว', data.error || 'กรุณาลองใหม่อีกครั้ง', 'error');
       return;
     }
     
-    showToast('จองคิวสำเร็จ', 'ระบบบันทึกคิวนัดหมายของท่านเรียบร้อยแล้ว', 'success');
+    showToast(
+      reschedulingApptId !== null ? 'เลื่อนนัดสำเร็จ' : 'จองคิวสำเร็จ', 
+      reschedulingApptId !== null ? 'เปลี่ยนแปลงวันเวลานัดหมายเรียบร้อยแล้ว' : 'ระบบบันทึกคิวนัดหมายของท่านเรียบร้อยแล้ว', 
+      'success'
+    );
     
-    // Reset selection
-    selectedTimeslotId = null;
-    btnSubmitBooking.disabled = true;
+    // Reset selection and mode
+    if (reschedulingApptId !== null) {
+      cancelReschedule();
+    } else {
+      selectedTimeslotId = null;
+      btnSubmitBooking.disabled = true;
+    }
     
     // Reload schedules
     loadPatientAppointments();
     loadTimeslots();
     
   } catch (err) {
-    showToast('เกิดข้อผิดพลาด', 'ล้มเหลวในการส่งข้อมูลคำขอจองคิว', 'error');
+    showToast('เกิดข้อผิดพลาด', 'ล้มเหลวในการส่งข้อมูลคำขอ', 'error');
   }
 }
+
+// ================= APPOINTMENT RESCHEDULING =================
+window.startReschedule = function(apptId) {
+  const appt = patientAppointments.find(a => a.id === apptId);
+  if (!appt) return;
+  
+  reschedulingApptId = appt.id;
+  
+  // Show banner & details
+  rescheduleBanner.classList.remove('hidden');
+  const startTimeStr = formatDateTime(appt.Timeslot.startTime);
+  const docName = `${appt.Timeslot.Doctor.firstName} ${appt.Timeslot.Doctor.lastName}`;
+  rescheduleInfo.textContent = `คิวที่ #${appt.id} (แพทย์: ${docName}, วันนัดเดิม: ${startTimeStr.split(' ')[0]} ${startTimeStr.split(' ')[1]})`;
+  
+  // Auto fill form
+  selectDoctor.value = appt.Timeslot.doctorId;
+  const originalDate = new Date(appt.Timeslot.startTime).toISOString().split('T')[0];
+  inputBookingDate.value = originalDate;
+  
+  // Trigger BE date label change
+  const label = document.getElementById('booking-date-be-label');
+  if (label) {
+    const d = new Date(originalDate);
+    const formatted = d.toLocaleDateString('th-TH', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    label.textContent = `ตรงกับ: ${formatted}`;
+  }
+  
+  loadTimeslots();
+  
+  // Update submit button text
+  btnSubmitBooking.innerHTML = '<i class="fa-solid fa-users-gear"></i> ยืนยันการเลื่อนนัดหมาย';
+  btnSubmitBooking.disabled = true; // wait for new slot select
+  
+  // Scroll to booking area
+  bookingContainer.scrollIntoView({ behavior: 'smooth' });
+};
+
+window.cancelReschedule = function() {
+  reschedulingApptId = null;
+  rescheduleBanner.classList.add('hidden');
+  btnSubmitBooking.innerHTML = '<i class="fa-solid fa-circle-check"></i> ยืนยันการจองคิวนัดหมาย';
+  
+  selectedTimeslotId = null;
+  btnSubmitBooking.disabled = true;
+  
+  // Load slots for tomorrow's date
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  inputBookingDate.value = tomorrow.toISOString().split('T')[0];
+  selectDoctor.value = '';
+  
+  const label = document.getElementById('booking-date-be-label');
+  if (label) {
+    const d = new Date(inputBookingDate.value);
+    const formatted = d.toLocaleDateString('th-TH', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    label.textContent = `ตรงกับ: ${formatted}`;
+  }
+  
+  loadTimeslots();
+};
 
 // ================= UTILITY FUNCTIONS =================
 function formatDateTime(isoString) {
