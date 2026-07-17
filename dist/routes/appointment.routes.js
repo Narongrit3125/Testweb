@@ -174,7 +174,7 @@ router.post('/', (req, res) => {
         });
         const result = runTransaction();
         // Notify Nurses in real-time
-        (0, realtime_service_1.broadcastUpdate)('NEW_APPOINTMENT', result);
+        (0, realtime_service_1.broadcastUpdate)('NEW_BOOKING', { appointment: result });
         res.status(201).json(result);
     }
     catch (error) {
@@ -214,13 +214,60 @@ router.delete('/:id', (req, res) => {
                 return res.status(400).json({ error: 'Must cancel at least 1 day in advance' });
             }
         }
+        // Fetch full cancelled appointment details to broadcast BEFORE setting it to cancelled so we have the relation data
+        const row = db_1.default.prepare(`
+      SELECT a.id AS apptId, a.status AS apptStatus, a.date AS apptDate, a.createdAt AS apptCreatedAt, a.updatedAt AS apptUpdatedAt,
+             p.id AS patientId, p.hn AS patientHn, p.firstName AS patientFirstName, p.lastName AS patientLastName, p.phone AS patientPhone, p.createdAt AS patientCreatedAt, p.updatedAt AS patientUpdatedAt,
+             t.id AS timeslotId, t.startTime AS timeslotStartTime, t.endTime AS timeslotEndTime, t.maxCapacity AS timeslotMaxCapacity, t.createdAt AS timeslotCreatedAt, t.updatedAt AS timeslotUpdatedAt,
+             d.id AS doctorId, d.firstName AS doctorFirstName, d.lastName AS doctorLastName, d.role AS doctorRole, d.createdAt AS doctorCreatedAt, d.updatedAt AS doctorUpdatedAt
+      FROM Appointment a
+      JOIN Patient p ON a.patientId = p.id
+      JOIN Timeslot t ON a.timeslotId = t.id
+      JOIN Employee d ON t.doctorId = d.id
+      WHERE a.id = ?
+    `).get(Number(id));
         db_1.default.prepare(`
       UPDATE Appointment 
       SET status = 'CANCELLED', updatedAt = datetime('now', 'localtime') 
       WHERE id = ?
     `).run(Number(id));
-        // Notify Nurses in real-time
-        (0, realtime_service_1.broadcastUpdate)('CANCEL_APPOINTMENT', { id: Number(id), status: 'CANCELLED', timeslotId: appointment.timeslotId });
+        const fullAppt = {
+            id: row.apptId,
+            patientId: row.patientId,
+            timeslotId: row.timeslotId,
+            status: 'CANCELLED',
+            date: row.apptDate,
+            createdAt: row.apptCreatedAt,
+            updatedAt: row.apptUpdatedAt,
+            Patient: {
+                id: row.patientId,
+                hn: row.patientHn,
+                firstName: row.patientFirstName,
+                lastName: row.patientLastName,
+                phone: row.patientPhone,
+                createdAt: row.patientCreatedAt,
+                updatedAt: row.patientUpdatedAt
+            },
+            Timeslot: {
+                id: row.timeslotId,
+                doctorId: row.doctorId,
+                startTime: row.timeslotStartTime,
+                endTime: row.timeslotEndTime,
+                maxCapacity: row.timeslotMaxCapacity,
+                createdAt: row.timeslotCreatedAt,
+                updatedAt: row.timeslotUpdatedAt,
+                Doctor: {
+                    id: row.doctorId,
+                    firstName: row.doctorFirstName,
+                    lastName: row.doctorLastName,
+                    role: row.doctorRole,
+                    createdAt: row.doctorCreatedAt,
+                    updatedAt: row.doctorUpdatedAt
+                }
+            }
+        };
+        // Notify Nurses & Doctors in real-time
+        (0, realtime_service_1.broadcastUpdate)('CANCEL_BOOKING', { appointment: fullAppt });
         res.json({ id: Number(id), status: 'CANCELLED', timeslotId: appointment.timeslotId });
     }
     catch (error) {

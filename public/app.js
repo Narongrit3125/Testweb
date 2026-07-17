@@ -25,6 +25,7 @@ const patientProfileCard = document.getElementById('patient-profile-card');
 const profileName = document.getElementById('profile-name');
 const profileHn = document.getElementById('profile-hn');
 const profilePhone = document.getElementById('profile-phone');
+const btnPatientLogout = document.getElementById('btn-patient-logout');
 const patientAppointmentsList = document.getElementById('patient-appointments-list');
 
 const toastContainer = document.getElementById('toast-container');
@@ -74,6 +75,9 @@ function setupEventListeners() {
 
   // Submit Booking
   btnSubmitBooking.addEventListener('click', submitBooking);
+
+  // Patient Logout
+  btnPatientLogout.addEventListener('click', logoutPatient);
 }
 
 // ================= DOCTORS LOADER =================
@@ -180,12 +184,14 @@ function loginPatient(patient) {
 
 function logoutPatient() {
   currentPatient = null;
+  inputHn.value = '';
   patientProfileCard.classList.add('hidden');
   bookingContainer.classList.add('disabled-state');
   patientAppointmentsList.innerHTML = '<p class="placeholder-text text-center">กรุณาเข้าสู่ระบบเพื่อแสดงคิวจองของคุณ</p>';
   timeslotsGrid.innerHTML = '<p class="placeholder-text text-center">กรุณาเลือกแพทย์และวันที่เพื่อดูช่วงเวลา</p>';
   btnSubmitBooking.disabled = true;
   selectedTimeslotId = null;
+  showToast('ออกจากระบบ', 'ออกจากระบบคนไข้เรียบร้อยแล้ว', 'success');
 }
 
 async function loadPatientAppointments() {
@@ -246,9 +252,10 @@ function renderPatientAppointments(appts) {
 // Make cancelAppointment global so onclick handles it
 window.cancelAppointment = async function(apptId) {
   if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการยกเลิกคิวจองนี้?')) return;
+  if (!currentPatient) return;
   
   try {
-    const res = await fetch(`/api/appointment/${apptId}`, {
+    const res = await fetch(`/api/appointment/${apptId}?hn=${currentPatient.hn}`, {
       method: 'DELETE'
     });
     
@@ -302,9 +309,10 @@ function renderTimeslots(slots) {
   
   slots.forEach(slot => {
     const isFull = slot.remainingCapacity <= 0;
+    const isPassed = new Date(slot.startTime) <= new Date();
     
     const item = document.createElement('div');
-    if (isFull) {
+    if (isPassed || isFull) {
       item.className = 'timeslot-item full';
     } else {
       item.className = 'timeslot-item';
@@ -313,7 +321,12 @@ function renderTimeslots(slots) {
     const startStr = formatTime(slot.startTime);
     const endStr = formatTime(slot.endTime);
     
-    if (isFull) {
+    if (isPassed) {
+      item.innerHTML = `
+        <div class="timeslot-time">${startStr} - ${endStr}</div>
+        <div class="timeslot-capacity">หมดเวลาจอง</div>
+      `;
+    } else if (isFull) {
       item.innerHTML = `
         <div class="timeslot-time">${startStr} - ${endStr}</div>
         <div class="timeslot-capacity">เต็มแล้ว (${slot.bookingsCount}/${slot.maxCapacity})</div>
@@ -325,7 +338,7 @@ function renderTimeslots(slots) {
       `;
     }
     
-    if (!isFull) {
+    if (!isFull && !isPassed) {
       item.addEventListener('click', () => {
         // De-select old
         const oldSelected = timeslotsGrid.querySelector('.timeslot-item.selected');

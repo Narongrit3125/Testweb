@@ -19,6 +19,7 @@ const tsCapacity = document.getElementById('ts-capacity');
 const btnCreateTimeslot = document.getElementById('btn-create-timeslot');
 
 const doctorAppointmentsBody = document.getElementById('doctor-appointments-body');
+const doctorTimeslotsList = document.getElementById('doctor-timeslots-list');
 const toastContainer = document.getElementById('toast-container');
 
 const passcodeScreen = document.getElementById('passcode-screen');
@@ -123,6 +124,7 @@ function handleDoctorLogin() {
   
   // Load data and listen to events
   loadDoctorAppointments();
+  loadDoctorTimeslots();
   startRealTimeUpdates();
   
   showToast('เข้าสู่ระบบสำเร็จ', `สวัสดีคุณหมอ ${currentDoctor.firstName} ยินดีต้อนรับสู่ระบบงานแพทย์`, 'success');
@@ -142,6 +144,7 @@ function handleDoctorLogout() {
   
   // Reset Form Inputs
   selectDoctorLogin.value = '';
+  doctorTimeslotsList.innerHTML = '<p class="placeholder-text text-center">กำลังโหลดข้อมูลตารางเวลา...</p>';
   
   // Switch Views
   doctorWorkspaceSection.classList.remove('active');
@@ -200,6 +203,7 @@ async function handleTimeslotCreation() {
     }
 
     showToast('เปิดช่วงเวลาสำเร็จ', 'ระบบเปิดตารางเวลาตรวจใหม่ของท่านเรียบร้อยแล้ว', 'success');
+    loadDoctorTimeslots();
   } catch (err) {
     showToast('เกิดข้อผิดพลาด', 'ล้มเหลวในการส่งข้อมูลตารางเวลาใหม่', 'error');
   }
@@ -342,6 +346,7 @@ window.cancelAppointment = async function(apptId) {
     
     showToast('ยกเลิกสำเร็จ', 'ยกเลิกคิวนัดหมายของคนไข้เรียบร้อยแล้ว', 'success');
     loadDoctorAppointments();
+    loadDoctorTimeslots(); // Refresh remaining/bookings count in list
   } catch (err) {
     showToast('เกิดข้อผิดพลาด', 'ล้มเหลวในการส่งคำขอยกเลิกนัดหมาย', 'error');
   }
@@ -399,3 +404,137 @@ function showToast(title, message, type = 'success') {
     }
   }, 4000);
 }
+
+// ================= TIMESLOTS LOADER & MANAGEMENT =================
+async function loadDoctorTimeslots() {
+  if (!currentDoctor) return;
+  
+  try {
+    const res = await fetch(`/api/timeslot?doctorId=${currentDoctor.id}`);
+    const slots = await res.json();
+    
+    // Sort timeslots chronologically by startTime
+    slots.sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+    
+    renderDoctorTimeslots(slots);
+  } catch (err) {
+    showToast('ดึงข้อมูลล้มเหลว', 'ไม่สามารถโหลดตารางเวลาตรวจของคุณหมอได้', 'error');
+  }
+}
+
+function renderDoctorTimeslots(slots) {
+  doctorTimeslotsList.innerHTML = '';
+  
+  if (slots.length === 0) {
+    doctorTimeslotsList.innerHTML = '<p class="placeholder-text text-center">คุณหมอยังไม่เคยเปิดรอบเวลาทำงาน</p>';
+    return;
+  }
+  
+  slots.forEach(slot => {
+    const card = document.createElement('div');
+    card.className = 'appt-card'; // Reuse appt-card stylesheet
+    card.style.flexDirection = 'column';
+    card.style.alignItems = 'stretch';
+    card.style.gap = '10px';
+    
+    const startTimeStr = formatDateTime(slot.startTime);
+    const endTimeStr = formatTime(slot.endTime);
+    
+    card.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div>
+          <h4 style="color: var(--accent-color); font-size: 0.95rem;">
+            <i class="fa-regular fa-clock"></i> รอบ: ${formatTime(slot.startTime)} - ${endTimeStr}
+          </h4>
+          <p style="font-size: 0.8rem; margin-top: 4px; color: var(--text-secondary);">
+            <i class="fa-regular fa-calendar"></i> วันที่: ${startTimeStr.split(' ')[0]} ${startTimeStr.split(' ')[1]} ${startTimeStr.split(' ')[2]}
+          </p>
+          <span class="status-badge ${slot.bookingsCount >= slot.maxCapacity ? 'status-cancelled' : 'status-booked'}" style="margin-top: 5px;">
+            จองแล้ว ${slot.bookingsCount}/${slot.maxCapacity} คน
+          </span>
+        </div>
+        <button class="btn-danger btn-sm" onclick="deleteTimeslot(${slot.id}, ${slot.bookingsCount})">
+          <i class="fa-regular fa-trash-can"></i> ปิดรอบ
+        </button>
+      </div>
+      <div style="display: flex; justify-content: flex-end; border-top: 1px dashed var(--glass-border); padding-top: 10px;">
+        <button class="btn-secondary btn-sm" style="font-size: 0.75rem; padding: 4px 10px;" onclick="editTimeslotCapacity(${slot.id}, ${slot.maxCapacity}, ${slot.bookingsCount})">
+          <i class="fa-solid fa-users-gear"></i> ปรับจำนวนคิวตรวจสูงสุด
+        </button>
+      </div>
+    `;
+    
+    doctorTimeslotsList.appendChild(card);
+  });
+}
+
+window.editTimeslotCapacity = async function(timeslotId, currentCapacity, bookingsCount) {
+  const newCapStr = prompt(`ระบุจำนวนคิวตรวจสูงสุดใหม่ (โควตาปัจจุบัน: ${currentCapacity} คน, จองแล้ว: ${bookingsCount} คน):`, currentCapacity);
+  if (newCapStr === null) return; // Cancelled
+  
+  const newCapacity = parseInt(newCapStr.trim());
+  if (isNaN(newCapacity) || newCapacity <= 0) {
+    showToast('ข้อมูลไม่ถูกต้อง', 'จำนวนคิวตรวจสูงสุดต้องเป็นตัวเลขที่มากกว่า 0', 'error');
+    return;
+  }
+  
+  if (newCapacity < bookingsCount) {
+    showToast('ปรับปรุงไม่สำเร็จ', `ไม่สามารถลดจำนวนคิวตรวจต่ำกว่าจำนวนที่มีผู้จองไว้แล้ว (${bookingsCount} คน) ได้`, 'error');
+    return;
+  }
+  
+  try {
+    const passcode = sessionStorage.getItem('doctor_passcode') || '';
+    const res = await fetch(`/api/timeslot/${timeslotId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${passcode}`
+      },
+      body: JSON.stringify({ maxCapacity: newCapacity })
+    });
+    
+    const data = await res.json();
+    if (!res.ok) {
+      showToast('ปรับโควตาล้มเหลว', data.error || 'กรุณาลองใหม่อีกครั้ง', 'error');
+      return;
+    }
+    
+    showToast('ปรับปรุงสำเร็จ', 'ปรับจำนวนโควตาผู้ป่วยเรียบร้อยแล้ว', 'success');
+    loadDoctorTimeslots();
+    loadDoctorAppointments();
+  } catch (err) {
+    showToast('เกิดข้อผิดพลาด', 'ล้มเหลวในการส่งข้อมูลคำขอปรับโควตา', 'error');
+  }
+};
+
+window.deleteTimeslot = async function(timeslotId, bookingsCount) {
+  let warningMessage = 'คุณแน่ใจหรือไม่ว่าต้องการปิดรอบตรวจเวลานี้?';
+  if (bookingsCount > 0) {
+    warningMessage = `คำเตือน! รอบตรวจนี้มีผู้ป่วยจองคิวไว้แล้วจำนวน ${bookingsCount} คน การลบรอบตรวจจะทำให้ตารางเวลานี้หายไป และคิวจองนัดหมายของผู้ป่วยทั้งหมดจะถูกยกเลิกอัตโนมัติ คุณแน่ใจหรือไม่?`;
+  }
+  
+  if (!confirm(warningMessage)) return;
+  
+  try {
+    const passcode = sessionStorage.getItem('doctor_passcode') || '';
+    const res = await fetch(`/api/timeslot/${timeslotId}`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${passcode}`
+      }
+    });
+    
+    const data = await res.json();
+    if (!res.ok) {
+      showToast('ลบรอบตรวจไม่สำเร็จ', data.error || 'กรุณาลองใหม่อีกครั้ง', 'error');
+      return;
+    }
+    
+    showToast('ลบรอบตรวจสำเร็จ', 'ปิดรอบตรวจและยกเลิกนัดหมายเดิม (ถ้ามี) เรียบร้อยแล้ว', 'success');
+    loadDoctorTimeslots();
+    loadDoctorAppointments();
+  } catch (err) {
+    showToast('เกิดข้อผิดพลาด', 'ล้มเหลวในการส่งคำขอปิดรอบตรวจ', 'error');
+  }
+};
